@@ -1,0 +1,19 @@
+{
+  "name": "bluebear",
+  "owner": {
+    "name": "BlueBear Security",
+    "email": "sec@bluebearsecurity.io"
+  },
+  "metadata": {
+    "description": "BlueBear Copilot governance",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "bluebear-guard",
+      "description": "BlueBear preToolUse guardrails",
+      "version": "1.0.0",
+      "source": "./plugins/bluebear-guard"
+    }
+  ]
+}
