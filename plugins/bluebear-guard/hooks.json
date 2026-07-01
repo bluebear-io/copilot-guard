@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "in=$(cat 2>/dev/null); printf \"%s\" \"$in\" | grep -q BLUEBEAR_GLOBAL_TEST && printf \"%s\" '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked by BlueBear GLOBAL plugin hook\"}'; true"
+      }
+    ]
+  }
+}
