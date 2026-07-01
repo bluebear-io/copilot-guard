@@ -1,0 +1,6 @@
+{
+  "name": "bluebear-guard",
+  "description": "BlueBear preToolUse guardrails",
+  "version": "1.0.0",
+  "hooks": "hooks.json"
+}
