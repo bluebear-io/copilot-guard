@@ -267,6 +267,15 @@ cb_ctx() {
     "$BB_LOGIN" "$BB_DEV" "$1" "$BB_GB" "$BB_GR" >"$BB_CTX" 2>/dev/null
 }
 
+# Shared enrichment: append caller-provided fields to the RAW hook event, preserving EVERY
+# original field (prompt, tool response, etc.) so downstream monitoring/naming is identical
+# across agents. $1 = fields WITHOUT the wrapping braces. Used by every agent dispatcher
+# (Copilot's cb_main today; Codex/other global-settings agents reuse this same code).
+bb_merge_event() {
+  BB_TRIM=$(printf '%s' "$BB_EVENT" | sed -e 's/[[:space:]]*$//')
+  printf '%s,%s}' "${BB_TRIM%\}}" "$1"
+}
+
 cb_main() {
   BB_HOOK="$1"
   # Copilot's shared global plugin is not handed an ingest URL (Claude injects one via
@@ -294,13 +303,16 @@ cb_main() {
   CB_FP=$(printf '%s' "$BB_EVENT" | sed -n 's/.*\\"\(file_path\|path\)\\"[[:space:]]*:[[:space:]]*\\"\([^\\]*\)\\".*/\2/p' | head -n1)
   CB_TI=$(printf '{"command":%s,"file_path":%s}' "$(bb_jv "$CB_CMD")" "$(bb_jv "$CB_FP")")
 
-  # Flat managed-hook shape the agentless endpoint + ClaudeAgentlessParser consume — the
-  # SAME shape Claude's bb_enriched_body emits (true parity), minus bluebear_org (Copilot
-  # has no per-org id) plus github_login (the BE resolves the org from it via Copilot seats).
-  CB_BODY=$(printf '{"agent_type":"copilot","hook_event_name":"%s","session_id":%s,"tool_name":%s,"tool_input":%s,"developer_email":%s,"github_login":%s,"event_id":"%s","source":"copilot_plugin","git_branch":%s,"git_repo_root":%s,"prompt_id":%s}' \
+  # Parity with Claude's bb_enriched_body: pass the FULL raw event through (so the prompt,
+  # tool response, and any other Copilot field are captured for monitoring/naming — NOT
+  # dropped) and append the normalized common fields the parser reads. camelCase originals
+  # (toolName/toolArgs/sessionId) coexist with the snake_case common keys — no collisions.
+  # bluebear_org is omitted (Copilot has no per-org id); github_login lets the BE resolve it.
+  CB_EXTRA=$(printf '"agent_type":"copilot","hook_event_name":"%s","session_id":%s,"tool_name":%s,"tool_input":%s,"developer_email":%s,"github_login":%s,"event_id":"%s","source":"copilot_plugin","git_branch":%s,"git_repo_root":%s,"prompt_id":%s' \
     "$BB_HOOK" "$(bb_jv "$BB_SID")" "$(bb_jv "$BB_TOOL")" "$CB_TI" \
     "$(bb_jv "$BB_DEV")" "$(bb_jv "$BB_LOGIN")" "$(bb_uuid)" \
     "$(bb_jv "$BB_GB")" "$(bb_jv "$BB_GR")" "$(bb_jv "$BB_PID")")
+  CB_BODY=$(bb_merge_event "$CB_EXTRA")
 
   if [ "$BB_HOOK" = "PreToolUse" ]; then
     BB_RESP=$(bb_post "$CB_BODY" 10)
