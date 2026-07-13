@@ -121,6 +121,16 @@ bb_git() {
 # Developer's GitHub login — Copilot CLI is GitHub-authenticated, so `gh` is present/authed.
 # The BE resolves the org from this login (the shared global plugin carries no org id).
 cb_gh_login() {
+  # Use the GitHub login Copilot itself is authenticated as (the Copilot-seat identity),
+  # read from Copilot's own config. `gh api user` can resolve a DIFFERENT logged-in gh
+  # account on multi-account machines, which won't match the developer's Copilot seat and
+  # breaks org resolution (â "Unrecognized organization" â fail-open allow). Fall back to
+  # gh only when Copilot's config login is unavailable.
+  BB_CP="$HOME/.copilot/config.json"
+  if [ -r "$BB_CP" ]; then
+    BB_L=$(sed -n 's/.*"login"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$BB_CP" 2>/dev/null | head -n1)
+    [ -n "$BB_L" ] && { printf '%s' "$BB_L"; return 0; }
+  fi
   command -v gh >/dev/null 2>&1 || return 0
   gh api user --jq .login 2>/dev/null
 }
