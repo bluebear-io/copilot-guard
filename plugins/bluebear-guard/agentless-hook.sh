@@ -246,11 +246,12 @@ bb_main() {
 # resolves the org from github_login. Shares every helper + the prompt_id state with bb_main.
 # Copilot input differs: `sessionId`/`toolName`/`toolArgs`(a JSON string)/`cwd`, and Copilot
 # expects the flat `{"permissionDecision":"deny"}` shape (cb_emit_deny).
-# Per-session identity+git cache — avoid re-running gh/config/git IO on EVERY tool call.
-# Sets BB_LOGIN, BB_DEV, BB_GB, BB_GR. github_login + developer_email are stable per session
-# so they are resolved ONCE and reused; git branch/repo are re-resolved only when cwd changes.
-# State lives next to the prompt-id file (BB_SDIR/BB_SID_SAFE set by bb_prompt_id). $1 = cwd.
-cb_ctx() {
+# Shared per-session identity+git cache (AGENT-AGNOSTIC) — avoid re-running the login/git/config
+# IO on EVERY tool call. Sets BB_LOGIN, BB_DEV, BB_GB, BB_GR. login + developer_email are stable
+# per session (resolved once); git branch/repo re-resolve only when cwd changes. The login SOURCE
+# is agent-specific, so the dispatcher passes its resolver fn by name (Copilot: cb_gh_login;
+# Codex/etc. pass their own). State lives next to the prompt-id file. $1 = cwd, $2 = login-resolver fn.
+bb_ctx() {
   BB_CTX="$BB_SDIR/${BB_SID_SAFE:-nosession}.ctx"
   BB_LOGIN=''; BB_DEV=''; BB_GB=''; BB_GR=''; BB_C_CWD=''
   if [ -r "$BB_CTX" ]; then
@@ -260,7 +261,7 @@ cb_ctx() {
     BB_GB=$(sed -n 's/^branch=//p' "$BB_CTX" | head -n1)
     BB_GR=$(sed -n 's/^repo=//p' "$BB_CTX" | head -n1)
   fi
-  [ -z "$BB_LOGIN" ] && BB_LOGIN=$(cb_gh_login)
+  [ -z "$BB_LOGIN" ] && BB_LOGIN=$("$2")
   [ -z "$BB_DEV" ] && BB_DEV=$(bb_dev_email "$1")
   [ "$BB_C_CWD" != "$1" ] && bb_git "$1"   # bb_git sets BB_GB, BB_GR
   printf 'login=%s\nemail=%s\ncwd=%s\nbranch=%s\nrepo=%s\n' \
@@ -292,7 +293,7 @@ cb_main() {
 
   BB_CWD=$(bb_field cwd)
   bb_prompt_id "$BB_HOOK"
-  cb_ctx "$BB_CWD"   # sets BB_LOGIN, BB_DEV, BB_GB, BB_GR from cache (resolve once)
+  bb_ctx "$BB_CWD" cb_gh_login   # shared cache; Copilot login resolver passed by name
   BB_TOOL=$(bb_field toolName)
 
   # Copilot's toolArgs is an escaped JSON STRING. Pull command/file_path BY KEY (not by
