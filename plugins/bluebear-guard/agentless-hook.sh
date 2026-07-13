@@ -121,6 +121,16 @@ bb_git() {
 # Developer's GitHub login — Copilot CLI is GitHub-authenticated, so `gh` is present/authed.
 # The BE resolves the org from this login (the shared global plugin carries no org id).
 cb_gh_login() {
+  # Use the GitHub login Copilot itself is authenticated as (the Copilot-seat identity),
+  # read from Copilot's own config. `gh api user` can resolve a DIFFERENT logged-in gh
+  # account on multi-account machines, which won't match the developer's Copilot seat and
+  # breaks org resolution (â "Unrecognized organization" â fail-open allow). Fall back to
+  # gh only when Copilot's config login is unavailable.
+  BB_CP="$HOME/.copilot/config.json"
+  if [ -r "$BB_CP" ]; then
+    BB_L=$(sed -n 's/.*"login"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$BB_CP" 2>/dev/null | head -n1)
+    [ -n "$BB_L" ] && { printf '%s' "$BB_L"; return 0; }
+  fi
   command -v gh >/dev/null 2>&1 || return 0
   gh api user --jq .login 2>/dev/null
 }
@@ -236,6 +246,27 @@ bb_main() {
 # resolves the org from github_login. Shares every helper + the prompt_id state with bb_main.
 # Copilot input differs: `sessionId`/`toolName`/`toolArgs`(a JSON string)/`cwd`, and Copilot
 # expects the flat `{"permissionDecision":"deny"}` shape (cb_emit_deny).
+# Per-session identity+git cache — avoid re-running gh/config/git IO on EVERY tool call.
+# Sets BB_LOGIN, BB_DEV, BB_GB, BB_GR. github_login + developer_email are stable per session
+# so they are resolved ONCE and reused; git branch/repo are re-resolved only when cwd changes.
+# State lives next to the prompt-id file (BB_SDIR/BB_SID_SAFE set by bb_prompt_id). $1 = cwd.
+cb_ctx() {
+  BB_CTX="$BB_SDIR/${BB_SID_SAFE:-nosession}.ctx"
+  BB_LOGIN=''; BB_DEV=''; BB_GB=''; BB_GR=''; BB_C_CWD=''
+  if [ -r "$BB_CTX" ]; then
+    BB_LOGIN=$(sed -n 's/^login=//p' "$BB_CTX" | head -n1)
+    BB_DEV=$(sed -n 's/^email=//p' "$BB_CTX" | head -n1)
+    BB_C_CWD=$(sed -n 's/^cwd=//p' "$BB_CTX" | head -n1)
+    BB_GB=$(sed -n 's/^branch=//p' "$BB_CTX" | head -n1)
+    BB_GR=$(sed -n 's/^repo=//p' "$BB_CTX" | head -n1)
+  fi
+  [ -z "$BB_LOGIN" ] && BB_LOGIN=$(cb_gh_login)
+  [ -z "$BB_DEV" ] && BB_DEV=$(bb_dev_email "$1")
+  [ "$BB_C_CWD" != "$1" ] && bb_git "$1"   # bb_git sets BB_GB, BB_GR
+  printf 'login=%s\nemail=%s\ncwd=%s\nbranch=%s\nrepo=%s\n' \
+    "$BB_LOGIN" "$BB_DEV" "$1" "$BB_GB" "$BB_GR" >"$BB_CTX" 2>/dev/null
+}
+
 cb_main() {
   BB_HOOK="$1"
   # Copilot's shared global plugin is not handed an ingest URL (Claude injects one via
@@ -251,10 +282,8 @@ cb_main() {
   bb_handler_running && exit 0
 
   BB_CWD=$(bb_field cwd)
-  bb_git "$BB_CWD"
   bb_prompt_id "$BB_HOOK"
-  BB_DEV=$(bb_dev_email "$BB_CWD")
-  BB_LOGIN=$(cb_gh_login)
+  cb_ctx "$BB_CWD"   # sets BB_LOGIN, BB_DEV, BB_GB, BB_GR from cache (resolve once)
   BB_TOOL=$(bb_field toolName)
 
   # Copilot's toolArgs is an escaped JSON STRING. Pull command/file_path BY KEY (not by
