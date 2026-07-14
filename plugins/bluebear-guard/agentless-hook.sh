@@ -277,6 +277,28 @@ bb_merge_event() {
   printf '%s,%s}' "${BB_TRIM%\}}" "$1"
 }
 
+# Best-effort self-update (Copilot-specific). Copilot CLI pins an installed plugin to its
+# version and never re-checks the marketplace, so a shipped guard fix wouldn't reach existing
+# seats without a manual `copilot plugin update`. Called ONLY from the sessionStart hook and
+# throttled to once per calendar day via a state file, so it costs at most one backgrounded
+# subprocess per machine per day — never on a tool call. Fully non-blocking (backgrounded,
+# output discarded) so it can never delay a session or influence a deny decision, and
+# PATH-guarded so it silently no-ops where `copilot` isn't resolvable. The attempt date is
+# recorded BEFORE spawning, so a hung/failed update won't retry until the next day. The pull
+# takes effect on the NEXT session (the current one already loaded its hooks). Uses the shared
+# ~/.bluebear-agentless state dir; the file name is the operator-visible "last attempt" record.
+cb_self_update() {
+  command -v copilot >/dev/null 2>&1 || return 0
+  BB_SDIR="$HOME/.bluebear-agentless"
+  mkdir -p "$BB_SDIR" 2>/dev/null
+  BB_UF="$BB_SDIR/.plugin-update-day"
+  BB_TODAY=$(date +%Y-%m-%d 2>/dev/null) || return 0
+  [ -n "$BB_TODAY" ] || return 0
+  [ "$(cat "$BB_UF" 2>/dev/null)" = "$BB_TODAY" ] && return 0
+  printf '%s' "$BB_TODAY" >"$BB_UF" 2>/dev/null
+  ( copilot plugin update bluebear-guard@bluebear </dev/null >/dev/null 2>&1 & ) 2>/dev/null
+}
+
 cb_main() {
   BB_HOOK="$1"
   # Copilot's shared global plugin is not handed an ingest URL (Claude injects one via
@@ -288,6 +310,10 @@ cb_main() {
   case "$BB_EVENT" in '{'*) ;; *) exit 0 ;; esac
 
   BB_SID=$(bb_field sessionId)
+
+  # Keep the seat on the latest guard despite Copilot's plugin-version pinning. Runs before
+  # the handler check (so it happens regardless of handler presence) and is self-throttled.
+  [ "$BB_HOOK" = "SessionStart" ] && cb_self_update
 
   bb_handler_running && exit 0
 
