@@ -1,4 +1,4 @@
-"""cb_self_update behavior — DEN-2982.
+"""copilot_self_update behavior — DEN-2982.
 
 Copilot pins installed plugins, so the guard self-updates on sessionStart, throttled to once
 per calendar day via ~/.bluebear-agentless/.plugin-update-day. These tests run the ACTUAL shell
@@ -13,7 +13,9 @@ import time
 from datetime import date
 from pathlib import Path
 
-LIB = (Path(__file__).resolve().parents[1] / "plugins" / "bluebear-guard" / "agentless-hook.sh").read_text()
+_AGENTLESS = Path(__file__).resolve().parents[1] / "plugins" / "bluebear-guard" / "agentless"
+# The composed Copilot library: shared helpers + Copilot functions.
+LIB = (_AGENTLESS / "shared.sh").read_text() + "\n" + (_AGENTLESS / "copilot.sh").read_text()
 
 
 def _fake_copilot(bin_dir: Path, marker: Path) -> str:
@@ -47,7 +49,7 @@ def _marker_lines(marker: Path, wait_s: float = 3.0) -> list[str]:
 def test_self_update_runs_once_and_records_day(tmp_path):
     home, marker = tmp_path / "home", tmp_path / "calls.txt"
     path_extra = _fake_copilot(tmp_path / "bin", marker)
-    _run("cb_self_update", home, path_extra)
+    _run("copilot_self_update", home, path_extra)
 
     day_file = home / ".bluebear-agentless" / ".plugin-update-day"
     assert day_file.read_text().strip() == date.today().isoformat(), "attempt day not recorded"
@@ -58,16 +60,16 @@ def test_self_update_runs_once_and_records_day(tmp_path):
 def test_self_update_throttled_same_day(tmp_path):
     home, marker = tmp_path / "home", tmp_path / "calls.txt"
     path_extra = _fake_copilot(tmp_path / "bin", marker)
-    _run("cb_self_update", home, path_extra)
+    _run("copilot_self_update", home, path_extra)
     _marker_lines(marker)  # let the first (backgrounded) call land
-    _run("cb_self_update", home, path_extra)  # same day → must NOT run again
+    _run("copilot_self_update", home, path_extra)  # same day → must NOT run again
     time.sleep(0.5)
     assert len(marker.read_text().splitlines()) == 1, "throttle failed: copilot ran twice same day"
 
 
 def test_self_update_noop_without_copilot(tmp_path):
     home = tmp_path / "home"
-    _run("cb_self_update", home, path_extra=None)  # no `copilot` on PATH
+    _run("copilot_self_update", home, path_extra=None)  # no `copilot` on PATH
     assert not (home / ".bluebear-agentless" / ".plugin-update-day").exists(), (
         "should not record an attempt when copilot is unavailable"
     )
@@ -81,7 +83,7 @@ def test_only_session_start_triggers_update(tmp_path):
 
     # PreToolUse must NOT trigger a self-update.
     subprocess.run(
-        ["/bin/sh", "-c", 'eval "$BB_LIB"; cb_main PreToolUse'],
+        ["/bin/sh", "-c", 'eval "$BB_LIB"; copilot_main PreToolUse'],
         input='{"sessionId":"s1","toolName":"bash","toolArgs":"{}","cwd":"/tmp"}',
         text=True, env=env_pre, timeout=30, check=False,
     )
@@ -89,7 +91,7 @@ def test_only_session_start_triggers_update(tmp_path):
 
     # SessionStart MUST trigger it (records the attempt day synchronously).
     subprocess.run(
-        ["/bin/sh", "-c", 'eval "$BB_LIB"; cb_main SessionStart'],
+        ["/bin/sh", "-c", 'eval "$BB_LIB"; copilot_main SessionStart'],
         input='{"sessionId":"s1","cwd":"/tmp"}',
         text=True, env=env_pre, timeout=30, check=False,
     )
