@@ -105,7 +105,7 @@ copilot_main() {
     case "$BB_RESP" in
       *'"decision":"deny"'* | *'"decision": "deny"'*)
         BB_REASON=$(printf '%s' "$BB_RESP" | sed -n 's/.*"reason"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
-        [ -z "$BB_REASON" ] && BB_REASON='Blocked by BlueBear policy'
+        [ -z "$BB_REASON" ] && BB_REASON='Blocked by Bluebear policy'
         copilot_emit_deny "$BB_REASON"
         ;;
     esac
