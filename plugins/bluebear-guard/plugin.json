@@ -1,6 +1,6 @@
 {
   "name": "bluebear-guard",
-  "description": "BlueBear agentless guardrails (preToolUse enforce + capture)",
-  "version": "1.1.5",
+  "description": "Bluebear agentless guardrails (preToolUse enforce + capture)",
+  "version": "1.1.6",
   "hooks": "hooks.json"
 }

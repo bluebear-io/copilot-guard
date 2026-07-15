@@ -60,7 +60,7 @@ bluebear_post() {
     -H 'Content-Type: application/json' -d @- 2>/dev/null
 }
 
-# True when the local BlueBear handler daemon is up — then the handler owns capture.
+# True when the local Bluebear handler daemon is up — then the handler owns capture.
 bluebear_handler_running() {
   BB_RT="$HOME/.bluebear/runtime.json"
   [ -r "$BB_RT" ] || return 1
